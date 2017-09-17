@@ -74,6 +74,12 @@ class FBDTP():
             self.elapsed = millis()
             self.output = False
 
+    def getReserveTime(self):
+        if((self.elapsed - millis()) > 0):
+            return int((self.elapsed - millis()) / 1000)
+        else:
+            return 0
+
 class FBDRTRG():
     def __init__(self):
         self.input = False
@@ -88,6 +94,11 @@ class FBDRTRG():
                 self.output = True
         return
 
+    def reset(self):
+        self.input = False
+        self.output = False
+        self.prev = False
+
 class FBDFTRG():
     def __init__(self):
         self.input = False
@@ -101,3 +112,8 @@ class FBDFTRG():
             if(self.input == False):
                 self.output = True
         return
+
+    def reset(self):
+        self.input = False
+        self.output = False
+        self.prev = False

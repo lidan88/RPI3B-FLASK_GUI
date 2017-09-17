@@ -192,7 +192,15 @@
         {
             $.getJSON('/getstatus', function(result)
             {
-                //
+                console.log(result);
+
+                /*
+                if(result.farenheight ==true)
+                    $("#currTemp").text("Current Temperature " + parseFloat(result.currTemp).toFixed(2) +"°F");
+                else
+                    $("#currTemp").text("Current Temperature " + parseFloat(result.currTemp).toFixed(2) +"°C");
+                */
+
                 if(result.farenheight ==true)
                     $("#currTemp").text("Current Temperature " + parseFloat(result.currTemp).toFixed(2) +"°F");
                 else
@@ -220,14 +228,14 @@
                     $("#heaterStatus").css("background-color","#fff");
                 }
 
-                if(result.buzzerTimer)
+                if(result.buzzerTimer >=0)
                 {
                     var minutes= Math.floor(result.buzzerTimer / 60);
                     var second = result.buzzerTimer - 60 * minutes;
                     if(minutes < 10)
-                        minutes ='0'+minutes;
+                        minutes ='0' + minutes;
                     if(second < 10)
-                        second ='0' +second;
+                        second ='0' + second;
 
                     var timer= minutes +":"+ second;
                     $("#buzzerTimer").text(timer);
@@ -235,19 +243,19 @@
 
                 if(result.buzzer ==true)
                 {
-                    $("#buzzerStatus").text('START');
+                    $("#buzzerStatus").text('STOP');
                     $("#buzzerStatus").css("background-color","#ff0000");
                 }
                 else
                 {
-                    $("#buzzerStatus").text('STOP');
+                    $("#buzzerStatus").text('START');
                     $("#buzzerStatus").css("background-color", "#fff");
                 }
 
                 if(result.farenheight == true)
-                    $("#setTemp").text(parseFloat(result.setTemperature).toFixed(2) + "°F");
+                    $("#setTemp").text(parseInt(result.setTemperature) + "°F");
                 else
-                    $("#setTemp").text(parseFloat(result.setTemperature).toFixed(2) + "°C");
+                    $("#setTemp").text(parseInt(result.setTemperature) + "°C");
 
                 if(result.heaterAuto)
                     $('#autoToggle').bootstrapToggle('on');
@@ -259,7 +267,7 @@
                 else
                     $('#switchUnit').bootstrapToggle('off');
 
-                setTimeout(function(){Getstatus();}, 2000);
+                setTimeout(function(){Getstatus();}, 1000);
             });
         }
     );

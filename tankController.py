@@ -39,6 +39,8 @@ deviceStatus = {
     'buzzer' : False,
     'pumpStatus' : False,
     'heaterStatus' : False,
+    'reserveTime': 100,
+    'downCount': False,
 }
 
 sensorStatus = dict()
@@ -51,14 +53,20 @@ BUZZER = 18
 PUMPSWITCH = 22
 BUZEERSWITCH = 23
 
-RELAYON = GPIO.HIGH
-RELAYOFF = GPIO.LOW
+RELAYON = GPIO.LOW
+RELAYOFF = GPIO.HIGH
 
 ### GPIO init
 GPIO.setmode(GPIO.BCM) # Broadcom pin-numbering scheme
+GPIO.setwarnings(False)
 GPIO.setup(PUMP, GPIO.OUT)
+GPIO.output(PUMP, RELAYOFF)
+
 GPIO.setup(HEATER, GPIO.OUT)
+GPIO.output(HEATER, RELAYOFF)
+
 GPIO.setup(BUZZER, GPIO.OUT)
+GPIO.output(BUZZER, RELAYOFF)
 
 GPIO.setup(PUMPSWITCH, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(BUZEERSWITCH, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -98,9 +106,11 @@ class Controller(threading.Thread):
         threading.Thread.__init__(self)
 
         ### FBD variables
-        self.buzzerIntervalTON = FBDTON(deviceSetting['buzzerTimer'] * 1000)
-        self.buzzerIntervalTrg = FBDRTRG()
+
+        self.ringTP = FBDTP(5000)
+
         self.buzzerTP = FBDTP(Controller.BUZZERHOLDINGTIME)
+        self.buzeerOffTrg = FBDFTRG()
 
         self.buzzerOnCommand = False
         self.buzzerOffCommand = False
@@ -139,7 +149,6 @@ class Controller(threading.Thread):
                 deviceStatus['currTemp'] = sensor.readTempC()
                 internal = sensor.readInternalC()
 
-
                 self.pumpSwitchTON.input = not GPIO.input(PUMPSWITCH)
                 self.pumpSwitchTON.proc()
                 self.pumpSwitchTrg.input = self.pumpSwitchTON.output
@@ -148,36 +157,46 @@ class Controller(threading.Thread):
                     print('pump switch is detected')
                     deviceStatus['pumpStatus'] = not deviceStatus['pumpStatus']
 
-                ###
+                ### buzzer control logic
                 self.buzzerSwitchTON.input = not GPIO.input(BUZEERSWITCH)
                 self.buzzerSwitchTON.proc()
                 self.buzzerSwitchTrg.input = self.buzzerSwitchTON.output
                 self.buzzerSwitchTrg.proc()
-                if(self.buzzerSwitchTrg.output):
+
+                if(self.buzzerSwitchTrg.output or self.buzzerOnCommand):
                     print('buzzer switch is detected')
-                    if(deviceStatus['buzzer']):
-                        print('buzzer will be stopped')
-                        self.buzzerOffCommand = True
+                    if(not deviceStatus['downCount']):
+                        self.buzzerTP.preset = deviceSetting['buzzerTimer'] * 1000
+                        self.buzzerTP.input = True
                     else:
-                        print('buzzer will be started')
-                        self.buzzerOnCommand = True
+                        self.buzzerTP.reset()
+                        self.ringTP.reset()
+                        self.buzeerOffTrg.reset()
 
-                ### buzzer control logic
-                self.buzzerIntervalTON.input = not self.buzzerIntervalTON.output
-                self.buzzerIntervalTON.preset = deviceSetting['buzzerTimer'] * 1000
-                self.buzzerIntervalTON.proc()
-
-                self.buzzerIntervalTrg.input = self.buzzerIntervalTON.output
-                self.buzzerIntervalTrg.proc()
-
-                self.buzzerTP.input = self.buzzerIntervalTrg.output or self.buzzerOnCommand
-                self.buzzerTP.proc()
                 self.buzzerOnCommand = False
+                self.buzzerOffCommand = False
 
-                deviceStatus['buzzer'] = self.buzzerTP.output
-                if(deviceStatus['buzzer'] and self.buzzerOffCommand == True):
-                    self.buzzerTP.reset()
-                    deviceStatus['buzzer'] = False
+                self.buzzerTP.proc()
+                self.buzzerTP.input = False
+
+                self.buzeerOffTrg.input = self.buzzerTP.output
+                self.buzeerOffTrg.proc()
+                self.ringTP.input = self.buzeerOffTrg.output
+                self.ringTP.proc()
+
+                deviceStatus['buzzer'] = self.ringTP.output
+                if (self.buzzerTP.output == True or deviceStatus['buzzer'] == True):
+                    deviceStatus['downCount'] = True
+                else:
+                    deviceStatus['downCount'] = False
+
+                if(deviceStatus['downCount'] == True):
+                    deviceStatus['reserveTime'] = self.buzzerTP.getReserveTime()
+                    print(deviceStatus['reserveTime'])
+                else:
+                    deviceStatus['reserveTime'] = deviceSetting['buzzerTimer']
+
+                self.buzzerOnCommand = False
                 self.buzzerOffCommand = False
 
                 ### Heater Automatic Control
@@ -212,7 +231,7 @@ class Controller(threading.Thread):
                 else:
                     GPIO.output(PUMP, RELAYOFF)
 
-                time.sleep(0.5)
+                time.sleep(0.2)
         except:
             print('station proc error')
             pass
@@ -220,22 +239,28 @@ class Controller(threading.Thread):
 @app.route('/togglebuzzer')
 def togglebuzzer():
     result = dict()
-
+    controller.buzzerForceOn()
+    result['command'] = 'ON'
+    '''
     if(deviceStatus['buzzer']):
         controller.buzzerForceOff()
         result['command'] = 'OFF'
     else:
         controller.buzzerForceOn()
         result['command'] = 'ON'
+    '''
 
     return jsonify(result=result)
 
 
 @app.route('/getstatus')
 def currstatus():
+
     result = dict()
+
     ###
     result['farenheight'] = deviceSetting['farenheight']
+
     if(deviceSetting['farenheight']):
         result['currTemp'] = celcius2farenheight(deviceStatus['currTemp'])
         result['setTemperature'] = celcius2farenheight(deviceSetting['setTemperature'])
@@ -249,12 +274,15 @@ def currstatus():
 
     ###
     result['buzzer'] = deviceStatus['buzzer']
-    result['buzzerTimer'] = deviceSetting['buzzerTimer']
+    result['buzzerTimer'] = deviceStatus['reserveTime']
+
     ###
     result['pumpStatus'] = deviceStatus['pumpStatus']
+
     ###
     result['heaterStatus'] = deviceStatus['heaterStatus']
     result['heaterAuto'] = deviceSetting['heaterAuto']
+
     return jsonify(result)
 
 @app.route('/turnpump')
@@ -270,7 +298,7 @@ def heaterControl(number):
     try:
         heaterNumber = int(number)
         if(heaterNumber == 1):
-            if(deviceSetting['heaterAuto'] ==True):
+            if(deviceSetting['heaterAuto'] == True):
                 print('Heater is in automatic control mode, you can only control heater in only manual mode!')
                 result['fail'] = 'invalid control mode'
             else:
@@ -310,13 +338,14 @@ def setTemperature():
     result = dict()
     # convert to double
     try:
-        newTemp = float(arg)
-        if(deviceSetting['farenheight']):
-            deviceSetting['setTemperature'] = farenheight2celcius(newTemp)
-        else:
-            deviceSetting['setTemperature'] = newTemp
-        result['setTemperature'] = deviceSetting['setTemperature']
-        saveSetting()
+        if(not deviceStatus['downCount']):
+            newTemp = float(arg)
+            if(deviceSetting['farenheight']):
+                deviceSetting['setTemperature'] = farenheight2celcius(newTemp)
+            else:
+                deviceSetting['setTemperature'] = newTemp
+            result['setTemperature'] = deviceSetting['setTemperature']
+            saveSetting()
     except:
         print('Invalid argument')
         result['fail'] = 'Invalid argument'
